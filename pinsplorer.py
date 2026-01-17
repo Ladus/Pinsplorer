@@ -67,6 +67,8 @@ class ImageGallery(Tk):
         self.viewer.configure(bg="black")
         self.viewer.bind("<Escape>", lambda e: self.close_viewer())
         self.viewer.bind("<Button-1>", self.on_viewer_click)
+        self.viewer.bind("<Left>", lambda e: self.show_prev())
+        self.viewer.bind("<Right>", lambda e: self.show_next())
 
         self.viewer_label = Label(self.viewer, bg="black")
         self.viewer_label.pack(fill=BOTH, expand=True)
@@ -147,15 +149,18 @@ class ImageGallery(Tk):
     def open_viewer(self, index):
         self.current_index = index
         self.viewer.deiconify()
+        # Set viewer size and position
         self.viewer.geometry(f"{self.winfo_width()}x{self.winfo_height()}+{self.winfo_x()}+{self.winfo_y()}")
+        self.viewer.update_idletasks()  # Force geometry update here
         self.show_image()
 
     def show_image(self):
         path = self.images[self.current_index]
-        img = Image.open(path)
-        vw, vh = self.viewer.winfo_width(), self.viewer.winfo_height()
-        img.thumbnail((vw, vh))
-        self.viewer_img = ImageTk.PhotoImage(img)
+        with Image.open(path) as img:
+            vw, vh = self.viewer.winfo_width(), self.viewer.winfo_height()
+            img.thumbnail((vw, vh))
+            img_copy = img.copy()  # Copy to release the file handle
+        self.viewer_img = ImageTk.PhotoImage(img_copy)
         self.viewer_label.config(image=self.viewer_img)
 
     def show_prev(self):
