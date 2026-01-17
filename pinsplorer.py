@@ -1,6 +1,5 @@
 import os
 import random
-import threading
 from tkinter import *
 from tkinter import filedialog
 from PIL import Image, ImageTk
@@ -24,7 +23,7 @@ class ImageGallery(Tk):
 
         self.folder = None
         self.images = []
-        self.thumbs = {}
+        self.thumbs = {}  # Cache: {path -> PhotoImage}
         self.thumb_size = 150
         self.current_index = None
 
@@ -59,8 +58,6 @@ class ImageGallery(Tk):
             lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
         )
 
-        self.frame.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
-
         self.canvas.bind_all("<MouseWheel>", self.on_mousewheel)
         self.canvas.bind_all("<Button-4>", self.on_mousewheel)
         self.canvas.bind_all("<Button-5>", self.on_mousewheel)
@@ -81,7 +78,6 @@ class ImageGallery(Tk):
         Button(nav, text="◀", command=self.show_prev).pack(side=LEFT)
         Button(nav, text="▶", command=self.show_next).pack(side=RIGHT)
 
-
     def select_folder(self):
         self.folder = filedialog.askdirectory()
         if not self.folder:
@@ -92,27 +88,39 @@ class ImageGallery(Tk):
             if f.lower().endswith(IMAGE_EXTS)
         ]
         self.images.sort()
+        self.preload_thumbnails()
         self.render_thumbnails()
+
+    def preload_thumbnails(self):
+        self.thumbs.clear()
+        for path in self.images:
+            try:
+                img = Image.open(path)
+                img.thumbnail((self.thumb_size, self.thumb_size))
+                self.thumbs[path] = ImageTk.PhotoImage(img)
+            except Exception as e:
+                print(f"Failed to load thumbnail for {path}: {e}")
 
     def render_thumbnails(self):
         for w in self.frame.winfo_children():
             w.destroy()
-        self.thumbs.clear()
 
         cols = max(1, self.winfo_width() // (self.thumb_size + 20))
 
         for i, path in enumerate(self.images):
-            img = Image.open(path)
-            img.thumbnail((self.thumb_size, self.thumb_size))
-            tk_img = ImageTk.PhotoImage(img)
+            tk_img = self.thumbs.get(path)
+            if not tk_img:
+                # fallback in case thumbnail missing
+                try:
+                    img = Image.open(path)
+                    img.thumbnail((self.thumb_size, self.thumb_size))
+                    tk_img = ImageTk.PhotoImage(img)
+                    self.thumbs[path] = tk_img
+                except Exception as e:
+                    print(f"Failed to load image {path}: {e}")
+                    continue
 
-            self.thumbs[path] = tk_img
-
-            btn = Button(
-                self.frame,
-                image=tk_img,
-                command=lambda i=i: self.open_viewer(i)
-            )
+            btn = Button(self.frame, image=tk_img, command=lambda i=i: self.open_viewer(i))
             btn.grid(row=i // cols, column=i % cols, padx=5, pady=5)
 
         self.update_idletasks()
@@ -122,7 +130,11 @@ class ImageGallery(Tk):
         self.thumb_size = int(value)
         if hasattr(self, "_resize_after"):
             self.after_cancel(self._resize_after)
-        self._resize_after = self.after(150, self.render_thumbnails)
+        self._resize_after = self.after(150, self._resize_and_render)
+
+    def _resize_and_render(self):
+        self.preload_thumbnails()
+        self.render_thumbnails()
 
     def randomize(self):
         random.shuffle(self.images)
@@ -159,52 +171,6 @@ class ImageGallery(Tk):
     def on_viewer_click(self, event):
         if event.widget == self.viewer:
             self.close_viewer()
-
-    def on_canvas_configure(self):
-        self.render_visible_thumbnails()
-
-    def render_visible_thumbnails(self):
-        if not self.images:
-            return
-
-        # How many thumbnails per row (same as before)
-        cols = max(1, self.winfo_width() // (self.thumb_size + 20))
-
-        # Canvas visible area in y-axis
-        y1 = self.canvas.canvasy(0)
-        y2 = y1 + self.canvas.winfo_height()
-
-        # Height per row (thumbnail size + padding)
-        row_height = self.thumb_size + 10
-
-        # Calculate visible rows range
-        first_row = max(0, int(y1 // row_height))
-        last_row = int(y2 // row_height) + 1
-
-        # Calculate image indices visible in this range
-        start_idx = first_row * cols
-        end_idx = min(len(self.images), (last_row + 1) * cols)
-
-        # Destroy all children first to keep it simple (optional optimization later)
-        for w in self.frame.winfo_children():
-            w.destroy()
-        self.thumbs.clear()
-
-        # Create buttons only for visible thumbnails
-        for i in range(start_idx, end_idx):
-            path = self.images[i]
-            key = (path, self.thumb_size)
-            if key in self.thumb_cache:
-                tk_img = self.thumb_cache[key]
-            else:
-                img = Image.open(path)
-                img.thumbnail((self.thumb_size, self.thumb_size))
-                tk_img = ImageTk.PhotoImage(img)
-                self.thumb_cache[key] = tk_img
-
-            btn = Button(self.frame, image=tk_img, command=lambda i=i: self.open_viewer(i))
-            btn.grid(row=i // cols, column=i % cols, padx=5, pady=5)
-
 
 if __name__ == "__main__":
     ImageGallery().mainloop()
